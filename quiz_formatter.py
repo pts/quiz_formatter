@@ -126,18 +126,36 @@ def unicode_to_utf8(obj):
 
 # TODO(pts): Replace this with something faster, because Python regexps always
 # backtrack, and that's slow.
-HTML_RE = re.compile(
+HTML_TOKEN_PREFIX_RE = re.compile(
     r'[^&<>]+|'
     r'&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[-.\w]+);|'
+    r'<\?(?:(?s).*?)\?>|'  # <?xml...?>
+    r'<!--(?:(?s).*?)-->|'  # <!-- comment -->
     r'<[a-zA-Z][-:a-zA-Z]*(?:\s*[a-zA-Z][-:a-zA-Z]*(?:'
     r'=(?:[^<>="\s]*|"[^<>"]*"|\'[^<>\']*\')'  # HTML tag attribute.
-    r')?)*/?>')
+    r')?)*/?>|'
+    r'</[a-zA-Z][-:a-zA-Z]*>')
 
 
 def is_html(text):
   """Does the text look like HTML? Nonvalidating, heuristic parser."""
-  return bool(HTML_RE.match(text))
+  scanner = HTML_TOKEN_PREFIX_RE.scanner(text)
+  i = 0
+  while i < len(text):
+    match = scanner.match()
+    if not match:
+      return False
+    i = match.end()
+  return True
 
+assert is_html('')
+assert is_html('Hello, <i>World</i>!')
+assert is_html('Hello, <i>W&ouml;rld</i>!')
+assert not is_html('<<')
+assert not is_html('c<<')
+assert not is_html('c&&')
+assert not is_html('c&')
+assert is_html('"')
 
 
 def fix_text(text):
