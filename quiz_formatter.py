@@ -25,6 +25,14 @@ body {
       "Nimbus Roman No9 L Regular", "Liberation Serif", Times, serif;
   font-size:12pt;
 }
+pre {
+  margin-top:1ex;
+  margin-bottom:1ex;
+}
+p {
+  margin-top:1ex;
+  margin-bottom:1ex;
+}
 pre, code, tt {
   font-size:80%%;  /* Typical typewriter fonts are too large. */
   font-family: "DejaVu Sans Mono", "Bitstream Vera Sans Mono",
@@ -60,9 +68,60 @@ div.entry div.question span.id {
 div.entry div span.letter {
   font-weight:bold;
 }
+div.entry div.note span.notehdr {
+  font-weight:bold;
+}
+div.entry div.note {
+  /* Don't use display:none here, so pressing Tab won't rebreak the page. */
+  visibility:hidden;
+  border-top: 1px solid #000;
+  margin-top:0.5ex;
+  padding-top:0.5ex;
+}
+body.b div.entry div.note {
+  visibility:inherit;
+  background:#fee;
+}
 body.b div.entry div.correct {
   background:#dfd;
   /*color:red;*/
+}
+.print {
+  display:none;
+}
+.screen {
+  display:inherit;
+}
+@media print {  /* Put this after the general rules to override. */
+  body {
+    margin:0px;
+  }
+  div.entry div.question span.id {
+    color:#000;
+  }
+  body div.entry div span.letter {
+    font-weight:normal;
+  }
+  body div.entry div.correct span.letter {
+    font-weight:bold;
+  }
+  body div.entry div.correct {
+    background:#fff;
+    /*text-decoration:underline;*/  /* Doesn't play well with <sup>. */
+    border-bottom:1px solid black;
+    display:inline-block;
+    margin-left:0.5ex;
+    padding-left:0ex;
+  }
+  div.entry div.note {
+    visibility:inherit;
+  }
+  .print {
+    display:inherit;
+  }
+  .screen {
+    display:none;
+  }
 }
 </style>
 <script type="text/javascript">
@@ -104,7 +163,8 @@ if (document.addEventListener) {
 </script>
 </head><body>
 <h1 class=top>%(title_html)s</h1>
-<p>Press <i>Tab</i> to toggle showing the correct answers.
+<p class="screen">Press the <i>Tab</i> key to toggle showing the correct
+answers.</p>
 %(entries_html)s
 </body>
 '''
@@ -188,15 +248,20 @@ def get_entries(filename):
   if match:
     data = data[match.end():]
   entries = unicode_to_utf8(json.loads(data))
+  if not isinstance(entries, (list, tuple)):
+    raise ValueError
   output = []
   # Question numbering starts from 0 (default of `enumerate').
   for i, e in enumerate(entries):
-    answer_set = set(e)
-    answer_set.discard('question')
-    answer_set.discard('type')
-    answer_set.discard('correct')
+    if not isinstance(e, dict): 
+      raise ValueError
+    e = dict(e)  # Shallow copy.
     # TODO(pts): Report a nice error (rather than KeyError) if missing.
-    question, qtype, correct = e['question'], e['type'], e['correct']
+    question = e.pop('question')
+    qtype = e.pop('type')
+    correct = e.pop('correct')
+    note = e.pop('note', '')
+    answer_set = set(e)
     if not isinstance(question, str):
       raise ValueError
     if not isinstance(qtype, str):
@@ -222,6 +287,8 @@ def get_entries(filename):
         {'i': i, 'question': question, 'type_msg': type_msg})
     # TODO(pts): Warn if answers are not A, B, C, ... .
     for letter in sorted(answer_set):
+      if not (letter and ANSWER_LETTERS_RE.match(letter)):
+        raise ValueError('Invalid correct answer letter: ' + repr(letter))
       answer = e[letter].strip()
       if not answer:
         answer_set.remove(letter)
@@ -231,10 +298,16 @@ def get_entries(filename):
         class_attr = ' class=correct'
       else:
         class_attr = ''
-      output.extend(
+      output.append(
           '  <div%(class_attr)s><span class=letter>%(letter)s.</span> '
           '%(answer)s</div>\n' %
           {'class_attr': class_attr, 'letter': letter, 'answer': answer})
+    if note:
+      note = fix_text(note)
+      output.append(
+          '<div class=note><span class=notehdr>Note:</span> '
+          '%(note)s</div>\n' %
+          {'note': note})
     output.append('</div>\n')
     # Check these only this late, because some answers are empty.
     if not answer_set:
