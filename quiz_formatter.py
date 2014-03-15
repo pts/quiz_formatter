@@ -1,7 +1,12 @@
 #! /usr/bin/python
 # by pts@fazekas.hu at Sat Mar 15 17:01:14 CET 2014
+# works on Python 2.4, 2.5, 2.6 and 2.7.
 
-import json
+import cgi
+import json  # Needs Python 2.6 or the json module installed.
+import os
+import os.path
+import re
 import sys
 
 TEMPLATE = r'''
@@ -20,8 +25,8 @@ body {
   font-size:12pt;
 }
 h1.top {
-  margin-top: 0px;
-  margin-bottom: 1ex;
+  margin-top:0px;
+  margin-bottom:1ex;
 }
 div.entry {
   background:#fff;
@@ -41,8 +46,11 @@ div.entry div.question {
   margin-bottom:0.5ex;
 }
 div.entry div.question span.id {
-  font-weight: bold;
-  color: #090;
+  font-weight:bold;
+  color:#090;
+}
+div.entry div span.letter {
+  font-weight:bold;
 }
 body.b div.entry div.correct {
   background:#dfd;
@@ -93,10 +101,123 @@ if (document.addEventListener) {
 </body>
 '''
 
+JS_ASSIGNMENT_RE = re.compile(r'[A-Za-z]\w*[ \t]*=\s*')
 
-def main(argv):
-  title_html = 'Quiz questions'
-  entries_html = r'''
+def unicode_to_utf8(obj):
+  """Converts unicode to UTF-8-encoded str, recursively."""
+  if obj is None or isinstance(obj, (int, long, float, bool)):
+    return obj
+  elif isinstance(obj, str):
+    obj.decode('UTF-8')  # Raise UnicodeDecodeError if invalid.
+    return 
+  elif isinstance(obj, unicode):
+    return obj.encode('UTF-8')
+  elif isinstance(obj, (list, tuple)):
+    return map(unicode_to_utf8, obj)  # list to list, tuple to tuple.
+  elif isinstance(obj, dict):
+    result = {}
+    for key, value in sorted(obj.iteritems()):
+      key = unicode_to_utf8(key)
+      if key in result:
+        raise KeyError(key)
+      result[key] = unicode_to_utf8(value)
+    return result
+
+
+# TODO(pts): Replace this with something faster, because Python regexps always
+# backtrack, and that's slow.
+HTML_RE = re.compile(
+    r'[^&<>]+|'
+    r'&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[-.\w]+);|'
+    r'<[a-zA-Z][-:a-zA-Z]*(?:\s*[a-zA-Z][-:a-zA-Z]*(?:'
+    r'=(?:[^<>="\s]*|"[^<>"]*"|\'[^<>\']*\')'  # HTML tag attribute.
+    r')?)*/?>')
+
+
+def is_html(text):
+  """Does the text look like HTML? Nonvalidating, heuristic parser."""
+  return bool(HTML_RE.match(text))
+
+
+
+def fix_text(text):
+  text = text.strip()
+  if not is_html(text):
+    text = cgi.escape(text)
+  text = text.replace('\n', '<br>')
+  return text
+
+
+ANSWER_LETTERS_RE = re.compile('[A-Z]*\Z')
+
+
+def get_entries(filename):
+  f = open(filename)
+  try:
+    data = f.read()
+  finally:
+    f.close()
+  data = data.strip().rstrip(';')
+  match = JS_ASSIGNMENT_RE.match(data)
+  if match:
+    data = data[match.end():]
+  entries = unicode_to_utf8(json.loads(data))
+  output = []
+  # Question numbering starts from 0 (default of `enumerate').
+  for i, e in enumerate(entries):
+    answer_set = set(e)
+    answer_set.discard('question')
+    answer_set.discard('type')
+    answer_set.discard('correct')
+    # TODO(pts): Report a nice error (rather than KeyError) if missing.
+    question, qtype, correct = e['question'], e['type'], e['correct']
+    if not isinstance(question, str):
+      raise ValueError
+    if not isinstance(qtype, str):
+      raise ValueError
+    if not isinstance(correct, str):
+      raise ValueError
+    correct_set = set(correct)
+    correct = ''.join(sorted(correct_set))
+    if not correct:
+      raise ValueError('No correct answer.')
+    if not ANSWER_LETTERS_RE.match(correct):
+      raise ValueError('Invalid correct answer spec: ' + repr(correct))
+    output.append('<div class=entry>\n')
+    question = fix_text(question)
+    if qtype == 'tech':
+      type_msg = ''
+    else:
+      type_msg = ' <span class=type>(%(type)s)</span>' % {
+          'type': cgi.escape(qtype)}
+    output.append(
+        '  <div class=question><span class=id>%(i)s%(type_msg)s.</span> '
+        '%(question)s</div>\n' %
+        {'i': i, 'question': question, 'type_msg': type_msg})
+    # TODO(pts): Warn if answers are not A, B, C, ... .
+    for letter in sorted(answer_set):
+      answer = e[letter].strip()
+      if not answer:
+        answer_set.remove(letter)
+        continue
+      answer = fix_text(answer)
+      if letter in correct_set:
+        class_attr = ' class=correct'
+      else:
+        class_attr = ''
+      output.extend(
+          '  <div%(class_attr)s><span class=letter>%(letter)s.</span> '
+          '%(answer)s</div>\n' %
+          {'class_attr': class_attr, 'letter': letter, 'answer': answer})
+    output.append('</div>\n')
+    # Check these only this late, because some answers are empty.
+    if not answer_set:
+      raise ValueError('No answers.')
+    if not correct_set.issubset(answer_set):
+      raise ValueError('Unknown correct answers: ' + repr(
+          correct_set.difference(answer_set)))
+  return ''.join(output)
+  return r'''
 <div class=entry>
   <div class=question><span class=id>1.</span> What is the answer?</div>
   <div>foo</div>
@@ -109,10 +230,35 @@ def main(argv):
   <div>baz</div>
   <div class=correct>bar</div>
 </div>'''.lstrip('\n')
-  sys.stdout.write(TEMPLATE % {
+
+
+def main(argv):
+  if len(argv) == 2 and argv[1] != '--help':
+    filename = argv[1]
+  elif len(argv) == 1:
+    filename = 'questions.js'
+  else:
+    print >>sys.stderr, 'Usage: %s [<questions.js>]'
+    sys.exit(1)
+  output_filename = os.path.splitext(filename)[0] + '.html'
+  if output_filename == filename:
+    print >>sys.stderr, (
+        'error: Input and output filenames are the same: ' + filename)
+    sys.exit(2)
+
+  entries_html = get_entries(filename)
+  title_html = 'Quiz questions'
+  output = TEMPLATE % {
       'title_html': title_html,
       'entries_html': entries_html,
-  })
+  }
+
+  print >>sys.stderr, 'info: Writing HTML output: ' + output_filename
+  f = open(output_filename, 'w')
+  try:
+    f.write(output)
+  finally:
+    f.close()
 
 
 if __name__ == '__main__':
