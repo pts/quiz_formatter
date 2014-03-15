@@ -21,8 +21,16 @@ body {
   color:#000;
   margin:1ex;
   padding:0px;
-  font-family:serif;
+  font-family: font-family: "Times New Roman", Cambria, "Hoefler Text", Utopia,
+      "Nimbus Roman No9 L Regular", "Liberation Serif", Times, serif;
   font-size:12pt;
+}
+pre, code, tt {
+  font-size:80%%;  /* Typical typewriter fonts are too large. */
+  font-family: "DejaVu Sans Mono", "Bitstream Vera Sans Mono",
+      "Liberation Mono", Consolas, "Lucida Console",
+      "Lucida Sans Typewriter", "Andale Mono WT", "Andale Mono",
+      "Nimbus Mono L", Monaco, "Courier New", Courier, monospace;
 }
 h1.top {
   margin-top:0px;
