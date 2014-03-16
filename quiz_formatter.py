@@ -163,8 +163,9 @@ if (document.addEventListener) {
 </script>
 </head><body>
 <h1 class=top>%(title_html)s</h1>
-<p class="screen">Press the <i>Tab</i> key to toggle showing the correct
-answers.</p>
+<p class="screen">
+<input type=button value="Toogle displaying of solutions and notes" onclick="toggleSolutions()"> (Also works with hot key <i>Tab</i>.)
+</p>
 %(entries_html)s
 </body>
 '''
@@ -194,15 +195,16 @@ def unicode_to_utf8(obj):
 
 # TODO(pts): Replace this with something faster, because Python regexps always
 # backtrack, and that's slow.
+# TODO(pts): Add support for <script and and <style
 HTML_TOKEN_PREFIX_RE = re.compile(
     r'[^&<>]+|'
     r'&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[-.\w]+);|'
     r'<\?(?:(?s).*?)\?>|'  # <?xml...?>
     r'<!--(?:(?s).*?)-->|'  # <!-- comment -->
-    r'<[a-zA-Z][-:a-zA-Z]*(?:\s*[a-zA-Z][-:a-zA-Z]*(?:'
+    r'<(?:[a-zA-Z][-:a-zA-Z]*)(?:\s*[a-zA-Z][-:a-zA-Z]*(?:'
     r'=(?:[^<>="\s]*|"[^<>"]*"|\'[^<>\']*\')'  # HTML tag attribute.
-    r')?)*/?>|'
-    r'</[a-zA-Z][-:a-zA-Z]*>')
+    r')?)*\s*/?>|'
+    r'</(?:[a-zA-Z][-:a-zA-Z]*)>')
 
 
 def is_html(text):
@@ -216,8 +218,14 @@ def is_html(text):
     i = match.end()
   return True
 
+
 assert is_html('')
 assert is_html('Hello, <i>World</i>!')
+assert is_html('Hello, <i>World!')
+assert is_html('Hello, <i>World<i>!')
+assert is_html('Hello, </i>World!')
+assert is_html('Hello, <b>World</i>!')
+assert is_html('Hello, <b>World<i>!')
 assert is_html('Hello, <i>W&ouml;rld</i>!')
 assert not is_html('<<')
 assert not is_html('c<<')
@@ -226,11 +234,17 @@ assert not is_html('c&')
 assert is_html('"')
 
 
+PRE_OR_NL_RE = re.compile('\n|(<pre(?=[\s>])[^>]*>[^<>]*</pre>)')
+
+
 def fix_text(text):
   text = text.strip()
+  # TODO(pts): Implement and use is_balanced_html.
   if not is_html(text):
     text = cgi.escape(text)
-  text = text.replace('\n', '<br>')
+  # Just like `text = text.replace('\n', '<br>')', but doesn't replace within
+  # <pre>.
+  text = PRE_OR_NL_RE.sub(lambda match: match.group(1) or '<br>', text)
   return text
 
 
