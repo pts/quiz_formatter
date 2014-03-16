@@ -365,8 +365,10 @@ def format_html(entries):
   return ''.join(output)
 
 
-def format_tab(entries):
-  output = ['Timestamp\tQuestion\tAnswer A\tAnswer B\tAnswer C\tAnswer D\tCorrect\n']
+def format_csv(entries):
+  f = cStringIO.StringIO()
+  w = csv.writer(f)
+  w.writerow(('Timestamp', 'Question', 'Answer A', 'Answer B', 'Answer C', 'Answer D', 'Correct\n'))
   letters = 'ABCD'
   for e in entries:
     columns = []
@@ -385,9 +387,8 @@ def format_tab(entries):
     columns.append(correct)
     if '\t' in ''.join(columns):
       raise ValueError('\\t found in line %r.' % columns)
-    output.append('\t'.join(columns))
-    output.append('\n')
-  return ''.join(output)
+    w.writerow(columns)
+  return f.getvalue()
 
 
 def main(argv):
@@ -414,7 +415,7 @@ def main(argv):
         'Usage: %s [<flag> ...] [<questions.js>]\n'
         'Flags:\n'
         '--format=html\n'
-        '--format=tab\n')
+        '--format=csv\n')
     sys.exit(1)
   if i == len(argv):
     filename = 'questions.js'
@@ -425,7 +426,7 @@ def main(argv):
         argv[i + 1:])
     sys.exit(1)
 
-  if format not in ('html', 'tab'):
+  if format not in ('html', 'csv'):
     print >>sys.stderr, 'error: Unknown output format: %s' % format
     sys.exit(1)
 
@@ -445,7 +446,7 @@ def main(argv):
     }
     print >>sys.stderr, 'info: Writing HTML output: ' + output_filename
   else:
-    output = format_tab(entries)
+    output = format_csv(entries)
     print >>sys.stderr, 'info: Writing tabbed output: ' + output_filename
   f = open(output_filename, 'w')
   try:
