@@ -391,6 +391,11 @@ def format_csv(entries):
   return f.getvalue()
 
 
+def format_js(entries):
+  return 'questions = %s;\n' % json.dumps(
+      entries, sort_keys=True, indent=2, separators=(',', ': '))
+
+
 def main(argv):
   is_help = False
   format = 'html'
@@ -415,6 +420,7 @@ def main(argv):
         'Usage: %s [<flag> ...] [<questions.js>]\n'
         'Flags:\n'
         '--format=html\n'
+        '--format=js\n'
         '--format=csv\n')
     sys.exit(1)
   if i == len(argv):
@@ -426,7 +432,7 @@ def main(argv):
         argv[i + 1:])
     sys.exit(1)
 
-  if format not in ('html', 'csv'):
+  if format not in ('html', 'csv', 'js'):
     print >>sys.stderr, 'error: Unknown output format: %s' % format
     sys.exit(1)
 
@@ -445,6 +451,9 @@ def main(argv):
         'entries_html': entries_html,
     }
     print >>sys.stderr, 'info: Writing HTML output: ' + output_filename
+  elif format == 'js':
+    output = format_js(entries)
+    print >>sys.stderr, 'info: Writing JavaScript output: ' + output_filename
   else:
     output = format_csv(entries)
     print >>sys.stderr, 'info: Writing CSV output: ' + output_filename
