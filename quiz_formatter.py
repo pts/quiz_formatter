@@ -3,13 +3,15 @@
 # works on Python 2.4, 2.5, 2.6 and 2.7.
 
 import cgi
+import cStringIO
+import csv
 import json  # Needs Python 2.6 or the json module installed.
 import os
 import os.path
 import re
 import sys
 
-TEMPLATE = r'''
+HTML_TEMPLATE = r'''
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
     "http://www.w3.org/TR/html4/loose.dtd">
 <html><head>
@@ -264,12 +266,13 @@ def get_entries(filename):
   entries = unicode_to_utf8(json.loads(data))
   if not isinstance(entries, (list, tuple)):
     raise ValueError
-  output = []
+  output_entries = []
   # Question numbering starts from 0 (default of `enumerate').
   for i, e in enumerate(entries):
     if not isinstance(e, dict): 
       raise ValueError
     e = dict(e)  # Shallow copy.
+    output_entries.append(e)
     # TODO(pts): Report a nice error (rather than KeyError) if missing.
     question = e.pop('question')
     qtype = e.pop('type')
@@ -288,8 +291,49 @@ def get_entries(filename):
       raise ValueError('No correct answer.')
     if not ANSWER_LETTERS_RE.match(correct):
       raise ValueError('Invalid correct answer spec: ' + repr(correct))
+    # TODO(pts): Warn if answers are not A, B, C, ... .
+    for letter in sorted(answer_set):
+      if not (letter and ANSWER_LETTERS_RE.match(letter)):
+        raise ValueError('Invalid correct answer letter: ' + repr(letter))
+      answer = e[letter].strip()
+      if not answer:
+        answer_set.remove(letter)
+        continue
+      e[letter] = answer = fix_text(answer)
+    # Check these only this late, because some answers are empty.
+    if not answer_set:
+      raise ValueError('No answers.')
+    if not correct_set.issubset(answer_set):
+      raise ValueError('Unknown correct answers: ' + repr(
+          correct_set.difference(answer_set)))
+    e['question'] = question = fix_text(question)
+    e['note'] = note = fix_text(note)
+    e['type'] = qtype = fix_text(qtype)
+    e['correct'] = correct
+  return output_entries
+
+
+def format_html(entries):
+  output = []
+  # Question numbering starts from 0 (default of `enumerate').
+  for i, e in enumerate(entries):
+    if not isinstance(e, dict): 
+      raise TypeError
+    e = dict(e)  # Shallow copy.
+    question = e.pop('question')
+    qtype = e.pop('type')
+    correct = e.pop('correct')
+    note = e.pop('note', '')
+    answer_set = set(e)
+    if not isinstance(question, str):
+      raise TypeError
+    if not isinstance(qtype, str):
+      raise TypeError
+    if not isinstance(correct, str):
+      raise TypeError
+    correct_set = set(correct)
+    correct = ''.join(sorted(correct_set))
     output.append('<div class=entry>\n')
-    question = fix_text(question)
     if qtype == 'tech':
       type_msg = ''
     else:
@@ -299,15 +343,11 @@ def get_entries(filename):
         '  <div class=question><span class=id>%(i)s%(type_msg)s.</span> '
         '%(question)s</div>\n' %
         {'i': i, 'question': question, 'type_msg': type_msg})
-    # TODO(pts): Warn if answers are not A, B, C, ... .
     for letter in sorted(answer_set):
-      if not (letter and ANSWER_LETTERS_RE.match(letter)):
-        raise ValueError('Invalid correct answer letter: ' + repr(letter))
       answer = e[letter].strip()
       if not answer:
         answer_set.remove(letter)
         continue
-      answer = fix_text(answer)
       if letter in correct_set:
         class_attr = ' class=correct'
       else:
@@ -317,56 +357,96 @@ def get_entries(filename):
           '%(answer)s</div>\n' %
           {'class_attr': class_attr, 'letter': letter, 'answer': answer})
     if note:
-      note = fix_text(note)
       output.append(
           '<div class=note><span class=notehdr>Note:</span> '
           '%(note)s</div>\n' %
           {'note': note})
     output.append('</div>\n')
-    # Check these only this late, because some answers are empty.
-    if not answer_set:
-      raise ValueError('No answers.')
-    if not correct_set.issubset(answer_set):
-      raise ValueError('Unknown correct answers: ' + repr(
-          correct_set.difference(answer_set)))
   return ''.join(output)
-  return r'''
-<div class=entry>
-  <div class=question><span class=id>1.</span> What is the answer?</div>
-  <div>foo</div>
-  <div class=correct>bar</div>
-  <div>baz</div>
-</div>
-<div class=entry>
-  <div class=question><span class=id>2.</span> How old is the captain?</div>
-  <div>foo</div>
-  <div>baz</div>
-  <div class=correct>bar</div>
-</div>'''.lstrip('\n')
+
+
+def format_tab(entries):
+  output = ['Timestamp\tQuestion\tAnswer A\tAnswer B\tAnswer C\tAnswer D\tCorrect\n']
+  letters = 'ABCD'
+  for e in entries:
+    columns = []
+    e = dict(e)  # Shallow copy.
+    question = e.pop('question')
+    qtype = e.pop('type')
+    correct = e.pop('correct')
+    note = e.pop('note', '')
+    answer = ''.join(sorted(e))
+    if not set(e).issubset(letters):
+      raise ValueError
+    columns.append('')  # Timestamp.
+    columns.append(question)
+    for letter in letters:
+      columns.append(e[letter])
+    columns.append(correct)
+    if '\t' in ''.join(columns):
+      raise ValueError('\\t found in line %r.' % columns)
+    output.append('\t'.join(columns))
+    output.append('\n')
+  return ''.join(output)
 
 
 def main(argv):
-  if len(argv) == 2 and argv[1] != '--help':
-    filename = argv[1]
-  elif len(argv) == 1:
-    filename = 'questions.js'
-  else:
-    print >>sys.stderr, 'Usage: %s [<questions.js>]'
+  is_help = False
+  format = 'html'
+  i = 1
+  while i < len(argv):
+    arg = argv[i]
+    i += 1
+    if arg == '--':
+      break
+    elif arg == '-' or not arg.startswith('-'):
+      i -= 1
+      break
+    elif arg == '--help':
+      is_help = True
+    elif arg.startswith('--format='):
+      format = arg.split('=', 1)[1].lower()
+    else:
+      print >>sys.stderr, 'error: Unknown flag: %s' % arg
+      sys.exit(1)
+  if is_help:
+    print >>sys.stderr, (
+        'Usage: %s [<flag> ...] [<questions.js>]\n'
+        'Flags:\n'
+        '--format=html\n'
+        '--format=tab\n')
     sys.exit(1)
-  output_filename = os.path.splitext(filename)[0] + '.html'
+  if i == len(argv):
+    filename = 'questions.js'
+  elif i + 1 == len(argv):
+    filename = argv[1]
+  else:
+    print >>sys.stderr, 'error: Too many command-line argumens: ' + repr(
+        argv[i + 1:])
+    sys.exit(1)
+
+  if format not in ('html', 'tab'):
+    print >>sys.stderr, 'error: Unknown output format: %s' % format
+    sys.exit(1)
+
+  output_filename = os.path.splitext(filename)[0] + '.' + format
   if output_filename == filename:
     print >>sys.stderr, (
         'error: Input and output filenames are the same: ' + filename)
     sys.exit(2)
 
-  entries_html = get_entries(filename)
-  title_html = 'Quiz questions'
-  output = TEMPLATE % {
-      'title_html': title_html,
-      'entries_html': entries_html,
-  }
-
-  print >>sys.stderr, 'info: Writing HTML output: ' + output_filename
+  entries = get_entries(filename)
+  if format == 'html':
+    entries_html = format_html(entries)
+    title_html = 'Quiz questions'
+    output = HTML_TEMPLATE % {
+        'title_html': title_html,
+        'entries_html': entries_html,
+    }
+    print >>sys.stderr, 'info: Writing HTML output: ' + output_filename
+  else:
+    output = format_tab(entries)
+    print >>sys.stderr, 'info: Writing tabbed output: ' + output_filename
   f = open(output_filename, 'w')
   try:
     f.write(output)
