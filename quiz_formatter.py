@@ -420,7 +420,7 @@ def main(argv):
   if i == len(argv):
     filename = 'questions.js'
   elif i + 1 == len(argv):
-    filename = argv[1]
+    filename = argv[i]
   else:
     print >>sys.stderr, 'error: Too many command-line argumens: ' + repr(
         argv[i + 1:])
