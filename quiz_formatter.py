@@ -180,7 +180,7 @@ def unicode_to_utf8(obj):
     return obj
   elif isinstance(obj, str):
     obj.decode('UTF-8')  # Raise UnicodeDecodeError if invalid.
-    return 
+    return
   elif isinstance(obj, unicode):
     return obj.encode('UTF-8')
   elif isinstance(obj, (list, tuple)):
@@ -269,7 +269,7 @@ def get_entries(filename):
   output_entries = []
   # Question numbering starts from 0 (default of `enumerate').
   for i, e in enumerate(entries):
-    if not isinstance(e, dict): 
+    if not isinstance(e, dict):
       raise ValueError
     e = dict(e)  # Shallow copy.
     output_entries.append(e)
@@ -317,7 +317,7 @@ def format_html(entries):
   output = []
   # Question numbering starts from 0 (default of `enumerate').
   for i, e in enumerate(entries):
-    if not isinstance(e, dict): 
+    if not isinstance(e, dict):
       raise TypeError
     e = dict(e)  # Shallow copy.
     question = e.pop('question')
