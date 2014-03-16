@@ -447,7 +447,7 @@ def main(argv):
     print >>sys.stderr, 'info: Writing HTML output: ' + output_filename
   else:
     output = format_csv(entries)
-    print >>sys.stderr, 'info: Writing tabbed output: ' + output_filename
+    print >>sys.stderr, 'info: Writing CSV output: ' + output_filename
   f = open(output_filename, 'w')
   try:
     f.write(output)
